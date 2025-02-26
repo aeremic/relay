@@ -6,13 +6,16 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
 )
+
+var DELIMITER []byte = []byte("\n\r")
 
 type Client struct {
 	Username string
 
 	Connection net.Conn
-	Outbound   chan<- *Command
+	Outbound   chan<- Command
 	Register   chan<- *Client
 	Unregister chan<- *Client
 }
@@ -30,6 +33,39 @@ func (c *Client) RegisterNew(args []byte) error {
 
 	c.Username = string(username)
 	c.Register <- c
+
+	return nil
+}
+
+func (c *Client) Message(args []byte) error {
+	trimmedArgs := bytes.TrimSpace(args)
+	if trimmedArgs[0] != '#' && trimmedArgs[0] != '@' {
+		return fmt.Errorf("Recipient must be a channel or an user")
+	}
+
+	recipient := bytes.Split(trimmedArgs, []byte(" "))[0]
+	if len(recipient) == 0 {
+		return fmt.Errorf("Recipient must have a name")
+	}
+
+	trimmedArgs = bytes.TrimSpace(bytes.TrimPrefix(trimmedArgs, recipient))
+	length, error := strconv.Atoi(string(bytes.Split(trimmedArgs, DELIMITER)[0]))
+	if error != nil {
+		return fmt.Errorf("Body length missing")
+	}
+	if length == 0 {
+		return fmt.Errorf("Body length cannot be zero")
+	}
+
+	padding := len(bytes.Split(trimmedArgs, DELIMITER)[0])
+	body := trimmedArgs[padding : padding+length]
+
+	c.Outbound <- Command{
+		Recipient: string(recipient[1:]),
+		Sender:    c.Username,
+		Body:      body,
+		Id:        MESSAGE,
+	}
 
 	return nil
 }
